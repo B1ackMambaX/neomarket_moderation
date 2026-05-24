@@ -1,17 +1,14 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.domain.exceptions import DomainException, NotFoundException, PermissionDeniedException
-
-_STATUS_MAP = {
-    NotFoundException: 404,
-    PermissionDeniedException: 403,
-}
+from app.domain.exceptions import DomainException
 
 
-async def domain_exception_handler(request: Request, exc: DomainException) -> JSONResponse:
-    status_code = _STATUS_MAP.get(type(exc), 400)
+async def domain_exception_handler(
+    request: Request,
+    exc: DomainException,
+) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code,
-        content={"error": exc.code, "message": str(exc)},
+        status_code=exc.status_code,
+        content={"code": exc.code, "message": str(exc), "details": None},
     )

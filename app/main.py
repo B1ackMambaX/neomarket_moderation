@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.middleware.error_handler import domain_exception_handler
+from app.api.v1.routers import tickets
 from app.core.config import ALLOWED_ORIGINS, settings
 from app.core.database import engine
 from app.domain.exceptions import DomainException
@@ -16,7 +17,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NeoMarket B2B API",
+    title="NeoMarket Moderation API",
     version="1.0.0",
     debug=settings.DEBUG,
     lifespan=lifespan,
@@ -32,9 +33,7 @@ app.add_middleware(
 
 app.add_exception_handler(DomainException, domain_exception_handler)
 
-# Роутеры подключаются здесь по мере добавления модулей:
-# from app.api.v1.routers import orders
-# app.include_router(orders.router, prefix="/api/v1")
+app.include_router(tickets.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System"])
