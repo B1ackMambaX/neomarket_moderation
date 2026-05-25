@@ -11,8 +11,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     DEBUG: bool = False
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    B2B_BASE_URL: str = "http://b2b:8000"
+    MOD_TO_B2B_SERVICE_KEY: str
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = Settings()
