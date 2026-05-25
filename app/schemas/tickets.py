@@ -1,13 +1,45 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.entities.ticket import ModerationTicket, TicketKind, TicketStatus
+from app.domain.entities.ticket import (
+    FieldReport,
+    ModerationTicket,
+    TicketKind,
+    TicketStatus,
+)
 
 
 class ApproveTicketRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
+
+
+class FieldReportRequest(BaseModel):
+    field_path: str = Field(max_length=255)
+    message: str = Field(max_length=2000)
+    severity: str = "ERROR"
+
+    def to_entity(self) -> FieldReport:
+        return FieldReport(
+            field_path=self.field_path,
+            message=self.message,
+            severity=self.severity,
+        )
+
+
+class BlockTicketRequest(BaseModel):
+    blocking_reason_ids: list[UUID] = Field(min_length=1)
+    comment: str | None = Field(default=None, max_length=2000)
+    field_reports: list[FieldReportRequest] = Field(default_factory=list)
+
+
+class IncomingB2BEvent(BaseModel):
+    event_type: Literal["PRODUCT_CREATED", "PRODUCT_EDITED", "PRODUCT_DELETED"]
+    idempotency_key: UUID
+    occurred_at: datetime
+    payload: dict
 
 
 class TicketResponse(BaseModel):

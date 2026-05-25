@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ class ModerationTicketModel(Base, TimestampMixin):
     claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_comment: Mapped[str | None] = mapped_column(String(2000))
+    blocking_reason_id: Mapped[UUID | None] = mapped_column(nullable=True)
     json_before: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     json_after: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
@@ -36,3 +37,14 @@ class ModerationFieldReportModel(Base, TimestampMixin):
     field_path: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(String(2000), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="ERROR")
+
+
+class BlockingReasonModel(Base, TimestampMixin):
+    __tablename__ = "blocking_reasons"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    hard_block: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -24,6 +24,21 @@ class AbstractB2BModerationClient(ABC):
     ) -> None:
         raise NotImplementedError
 
+    @abstractmethod
+    async def send_blocked_event(
+        self,
+        *,
+        idempotency_key: UUID,
+        product_id: UUID,
+        moderator_id: UUID,
+        moderator_comment: str | None,
+        blocking_reason_id: UUID,
+        hard_block: bool,
+        field_reports: list[dict],
+        occurred_at: datetime,
+    ) -> None:
+        raise NotImplementedError
+
 
 class HttpB2BModerationClient(AbstractB2BModerationClient):
     async def send_moderated_event(
@@ -44,6 +59,40 @@ class HttpB2BModerationClient(AbstractB2BModerationClient):
             "blocking_reason_id": None,
             "hard_block": False,
             "field_reports": None,
+            "occurred_at": occurred_at.astimezone(timezone.utc).isoformat(),
+        }
+        headers = {"X-Service-Key": settings.MOD_TO_B2B_SERVICE_KEY}
+        url = f"{settings.B2B_BASE_URL.rstrip('/')}/api/v1/moderation/events"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+
+        if response.status_code >= 400:
+            raise B2BModerationClientError(
+                f"B2B moderation event rejected with {response.status_code}"
+            )
+
+    async def send_blocked_event(
+        self,
+        *,
+        idempotency_key: UUID,
+        product_id: UUID,
+        moderator_id: UUID,
+        moderator_comment: str | None,
+        blocking_reason_id: UUID,
+        hard_block: bool,
+        field_reports: list[dict],
+        occurred_at: datetime,
+    ) -> None:
+        payload = {
+            "idempotency_key": str(idempotency_key),
+            "product_id": str(product_id),
+            "event_type": "BLOCKED",
+            "moderator_id": str(moderator_id),
+            "moderator_comment": moderator_comment,
+            "blocking_reason_id": str(blocking_reason_id),
+            "hard_block": hard_block,
+            "field_reports": field_reports,
             "occurred_at": occurred_at.astimezone(timezone.utc).isoformat(),
         }
         headers = {"X-Service-Key": settings.MOD_TO_B2B_SERVICE_KEY}

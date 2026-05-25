@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     B2B_BASE_URL: str = "http://b2b:8000"
     MOD_TO_B2B_SERVICE_KEY: str
+    B2B_TO_MOD_SERVICE_KEY: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
