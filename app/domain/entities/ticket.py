@@ -17,6 +17,20 @@ class TicketStatus(StrEnum):
     HARD_BLOCKED = "HARD_BLOCKED"
 
 
+@dataclass(frozen=True, slots=True)
+class BlockingReason:
+    id: UUID
+    title: str
+    hard_block: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FieldReport:
+    field_path: str
+    message: str
+    severity: str = "ERROR"
+
+
 @dataclass(slots=True)
 class ModerationTicket:
     id: UUID
@@ -33,9 +47,13 @@ class ModerationTicket:
     claim_expires_at: datetime | None = None
     decision_at: datetime | None = None
     decision_comment: str | None = None
+    blocking_reason_id: UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
     def has_skus(self) -> bool:
         skus = self.json_after.get("skus")
         return isinstance(skus, list) and len(skus) > 0
+
+    def is_terminal(self) -> bool:
+        return self.status == TicketStatus.HARD_BLOCKED

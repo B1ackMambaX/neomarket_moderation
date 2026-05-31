@@ -47,12 +47,26 @@ class FakeTicketRepository(AbstractTicketRepository):
             return None
         return self.ticket
 
+    async def get_by_product_id(self, product_id: UUID) -> ModerationTicket | None:
+        if self.ticket is None or self.ticket.product_id != product_id:
+            return None
+        return self.ticket
+
+    async def get_blocking_reasons(self, reason_ids: list[UUID]) -> list:
+        return []
+
     async def save(self, ticket: ModerationTicket) -> None:
         self.ticket = ticket
         self.saved = True
 
+    async def save_field_reports(self, ticket_id: UUID, field_reports: list) -> None:
+        pass
+
     async def clear_field_reports(self, ticket_id: UUID) -> None:
         self.field_reports_cleared = True
+
+    async def delete_by_product_id(self, product_id: UUID) -> None:
+        self.ticket = None
 
 
 class RecordingB2BClient(AbstractB2BModerationClient):
@@ -75,6 +89,32 @@ class RecordingB2BClient(AbstractB2BModerationClient):
                 "event_type": "MODERATED",
                 "moderator_id": moderator_id,
                 "moderator_comment": moderator_comment,
+                "occurred_at": occurred_at,
+            }
+        )
+
+    async def send_blocked_event(
+        self,
+        *,
+        idempotency_key: UUID,
+        product_id: UUID,
+        moderator_id: UUID,
+        moderator_comment: str | None,
+        blocking_reason_id: UUID,
+        hard_block: bool,
+        field_reports: list[dict],
+        occurred_at: datetime,
+    ) -> None:
+        self.events.append(
+            {
+                "idempotency_key": idempotency_key,
+                "product_id": product_id,
+                "event_type": "BLOCKED",
+                "moderator_id": moderator_id,
+                "moderator_comment": moderator_comment,
+                "blocking_reason_id": blocking_reason_id,
+                "hard_block": hard_block,
+                "field_reports": field_reports,
                 "occurred_at": occurred_at,
             }
         )
