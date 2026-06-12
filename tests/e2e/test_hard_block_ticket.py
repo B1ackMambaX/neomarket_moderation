@@ -57,6 +57,7 @@ class FakeTicketRepository(AbstractTicketRepository):
         self.saved = False
         self.created: ModerationTicket | None = None
         self.deleted_product_id: UUID | None = None
+        self.processed_events: set[UUID] = set()
 
     async def create(self, ticket: ModerationTicket) -> None:
         self.ticket = ticket
@@ -98,6 +99,57 @@ class FakeTicketRepository(AbstractTicketRepository):
         if self.ticket is not None and self.ticket.product_id == product_id:
             self.ticket = None
 
+    async def is_event_processed(self, idempotency_key: UUID) -> bool:
+        return idempotency_key in self.processed_events
+
+    async def mark_event_processed(
+        self, idempotency_key: UUID, product_id: UUID, occurred_at: datetime
+    ) -> bool:
+        if idempotency_key in self.processed_events:
+            return False
+        self.processed_events.add(idempotency_key)
+        return True
+
+    async def create_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self.mark_event_processed(
+            idempotency_key, ticket.product_id, occurred_at
+        ):
+            return False
+        await self.create(ticket)
+        return True
+
+    async def save_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self.mark_event_processed(
+            idempotency_key, ticket.product_id, occurred_at
+        ):
+            return False
+        await self.clear_field_reports(ticket.id)
+        await self.save(ticket)
+        return True
+
+    async def delete_from_event(
+        self,
+        product_id: UUID,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self.mark_event_processed(
+            idempotency_key, product_id, occurred_at
+        ):
+            return False
+        await self.delete_by_product_id(product_id)
+        return True
+
 
 class RecordingB2BClient(AbstractB2BModerationClient):
     def __init__(self) -> None:
@@ -112,7 +164,7 @@ class RecordingB2BClient(AbstractB2BModerationClient):
         moderator_comment: str | None,
         occurred_at: datetime,
     ) -> None:
-        self.events.append({"event_type": "MODERATED"})
+        self.events.append({"event_type": "APPROVED"})
 
     async def send_blocked_event(
         self,

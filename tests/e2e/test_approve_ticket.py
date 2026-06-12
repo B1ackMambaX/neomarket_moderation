@@ -7,6 +7,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("MOD_TO_B2B_SERVICE_KEY", "test-b2b-key")
+os.environ.setdefault("B2B_TO_MOD_SERVICE_KEY", "test-b2b-inbound-key")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -41,6 +42,9 @@ class FakeTicketRepository(AbstractTicketRepository):
         self.ticket = ticket
         self.field_reports_cleared = False
         self.saved = False
+
+    async def create(self, ticket: ModerationTicket) -> None:
+        self.ticket = ticket
 
     async def get_by_id(self, ticket_id: UUID) -> ModerationTicket | None:
         if self.ticket is None or self.ticket.id != ticket_id:
@@ -86,7 +90,7 @@ class RecordingB2BClient(AbstractB2BModerationClient):
             {
                 "idempotency_key": idempotency_key,
                 "product_id": product_id,
-                "event_type": "MODERATED",
+                "event_type": "APPROVED",
                 "moderator_id": moderator_id,
                 "moderator_comment": moderator_comment,
                 "occurred_at": occurred_at,
@@ -192,7 +196,7 @@ async def test_approve_transitions_to_moderated_and_emits_event(approve_client):
         {
             "idempotency_key": ticket.id,
             "product_id": ticket.product_id,
-            "event_type": "MODERATED",
+            "event_type": "APPROVED",
             "moderator_id": moderator_id,
             "moderator_comment": "ok",
             "occurred_at": repo.ticket.decision_at,

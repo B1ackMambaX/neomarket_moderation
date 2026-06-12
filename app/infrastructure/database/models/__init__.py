@@ -3,6 +3,11 @@
 from app.infrastructure.database.models.ticket import (
     ModerationFieldReportModel,
     ModerationTicketModel,
+    ProcessedProductEventModel,
 )
 
-__all__ = ["ModerationFieldReportModel", "ModerationTicketModel"]
+__all__ = [
+    "ModerationFieldReportModel",
+    "ModerationTicketModel",
+    "ProcessedProductEventModel",
+]

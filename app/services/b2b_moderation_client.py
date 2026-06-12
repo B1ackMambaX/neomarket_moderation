@@ -12,6 +12,9 @@ class B2BModerationClientError(Exception):
 
 
 class AbstractB2BModerationClient(ABC):
+    async def get_product(self, product_id: UUID) -> dict:
+        raise NotImplementedError
+
     @abstractmethod
     async def send_moderated_event(
         self,
@@ -41,6 +44,19 @@ class AbstractB2BModerationClient(ABC):
 
 
 class HttpB2BModerationClient(AbstractB2BModerationClient):
+    async def get_product(self, product_id: UUID) -> dict:
+        headers = {"X-Service-Key": settings.MOD_TO_B2B_SERVICE_KEY}
+        url = f"{settings.B2B_BASE_URL.rstrip('/')}/api/v1/products/{product_id}"
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url, headers=headers)
+
+        if response.status_code >= 400:
+            raise B2BModerationClientError(
+                f"B2B product request rejected with {response.status_code}"
+            )
+        return response.json()
+
     async def send_moderated_event(
         self,
         *,
@@ -53,7 +69,7 @@ class HttpB2BModerationClient(AbstractB2BModerationClient):
         payload = {
             "idempotency_key": str(idempotency_key),
             "product_id": str(product_id),
-            "event_type": "MODERATED",
+            "event_type": "APPROVED",
             "moderator_id": str(moderator_id),
             "moderator_comment": moderator_comment,
             "blocking_reason_id": None,

@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities.ticket import BlockingReason, FieldReport, ModerationTicket
@@ -9,6 +11,7 @@ from app.infrastructure.database.models.ticket import (
     BlockingReasonModel,
     ModerationFieldReportModel,
     ModerationTicketModel,
+    ProcessedProductEventModel,
 )
 
 
@@ -17,18 +20,7 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
         self._session = session
 
     async def create(self, ticket: ModerationTicket) -> None:
-        model = ModerationTicketModel(
-            id=ticket.id,
-            product_id=ticket.product_id,
-            seller_id=ticket.seller_id,
-            category_id=ticket.category_id,
-            kind=ticket.kind,
-            status=ticket.status,
-            queue_priority=ticket.queue_priority,
-            json_before=ticket.json_before,
-            json_after=ticket.json_after,
-        )
-        self._session.add(model)
+        self._session.add(self._to_model(ticket))
         await self._session.commit()
 
     async def get_by_id(self, ticket_id: UUID) -> ModerationTicket | None:
@@ -70,11 +62,7 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
         if model is None:
             raise RuntimeError("Cannot save missing moderation ticket")
 
-        model.status = ticket.status
-        model.decision_at = ticket.decision_at
-        model.decision_comment = ticket.decision_comment
-        model.blocking_reason_id = ticket.blocking_reason_id
-        model.updated_at = ticket.updated_at
+        self._update_model(model, ticket)
         await self._session.commit()
 
     async def save_field_reports(
@@ -108,6 +96,142 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
             )
         )
         await self._session.commit()
+
+    async def is_event_processed(self, idempotency_key: UUID) -> bool:
+        result = await self._session.execute(
+            select(ProcessedProductEventModel.idempotency_key).where(
+                ProcessedProductEventModel.idempotency_key == idempotency_key
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def mark_event_processed(
+        self,
+        idempotency_key: UUID,
+        product_id: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self._try_add_event(idempotency_key, product_id, occurred_at):
+            await self._session.commit()
+            return False
+        await self._session.commit()
+        return True
+
+    async def create_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self._try_add_event(
+            idempotency_key, ticket.product_id, occurred_at
+        ):
+            await self._session.commit()
+            return False
+        self._session.add(self._to_model(ticket))
+        await self._session.commit()
+        return True
+
+    async def save_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self._try_add_event(
+            idempotency_key, ticket.product_id, occurred_at
+        ):
+            await self._session.commit()
+            return False
+
+        model = await self._session.get(ModerationTicketModel, ticket.id)
+        if model is None:
+            raise RuntimeError("Cannot save missing moderation ticket")
+        self._update_model(model, ticket)
+        await self._session.execute(
+            delete(ModerationFieldReportModel).where(
+                ModerationFieldReportModel.ticket_id == ticket.id
+            )
+        )
+        await self._session.commit()
+        return True
+
+    async def delete_from_event(
+        self,
+        product_id: UUID,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        if not await self._try_add_event(idempotency_key, product_id, occurred_at):
+            await self._session.commit()
+            return False
+        await self._session.execute(
+            delete(ModerationTicketModel).where(
+                ModerationTicketModel.product_id == product_id
+            )
+        )
+        await self._session.commit()
+        return True
+
+    async def _try_add_event(
+        self,
+        idempotency_key: UUID,
+        product_id: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        statement = (
+            insert(ProcessedProductEventModel)
+            .values(
+                idempotency_key=idempotency_key,
+                product_id=product_id,
+                occurred_at=occurred_at,
+                processed_at=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            .returning(ProcessedProductEventModel.idempotency_key)
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    def _to_model(ticket: ModerationTicket) -> ModerationTicketModel:
+        return ModerationTicketModel(
+            id=ticket.id,
+            product_id=ticket.product_id,
+            seller_id=ticket.seller_id,
+            category_id=ticket.category_id,
+            kind=ticket.kind,
+            status=ticket.status,
+            queue_priority=ticket.queue_priority,
+            assigned_moderator_id=ticket.assigned_moderator_id,
+            claimed_at=ticket.claimed_at,
+            claim_expires_at=ticket.claim_expires_at,
+            decision_at=ticket.decision_at,
+            decision_comment=ticket.decision_comment,
+            blocking_reason_id=ticket.blocking_reason_id,
+            json_before=ticket.json_before,
+            json_after=ticket.json_after,
+        )
+
+    @staticmethod
+    def _update_model(
+        model: ModerationTicketModel,
+        ticket: ModerationTicket,
+    ) -> None:
+        model.seller_id = ticket.seller_id
+        model.category_id = ticket.category_id
+        model.kind = ticket.kind
+        model.status = ticket.status
+        model.queue_priority = ticket.queue_priority
+        model.assigned_moderator_id = ticket.assigned_moderator_id
+        model.claimed_at = ticket.claimed_at
+        model.claim_expires_at = ticket.claim_expires_at
+        model.decision_at = ticket.decision_at
+        model.decision_comment = ticket.decision_comment
+        model.blocking_reason_id = ticket.blocking_reason_id
+        model.json_before = ticket.json_before
+        model.json_after = ticket.json_after
+        model.updated_at = ticket.updated_at
 
     @staticmethod
     def _to_entity(model: ModerationTicketModel) -> ModerationTicket:
