@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,10 @@ class ModerationTicketModel(Base, TimestampMixin):
     claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decision_comment: Mapped[str | None] = mapped_column(String(2000))
-    blocking_reason_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    blocking_reason_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("blocking_reasons.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     json_before: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     json_after: Mapped[dict] = mapped_column(JSONB, nullable=False)
 

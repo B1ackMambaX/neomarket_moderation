@@ -136,7 +136,14 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
             )
         )
         return [
-            BlockingReason(id=model.id, title=model.title, hard_block=model.hard_block)
+            BlockingReason(
+                id=model.id,
+                code=model.code,
+                title=model.title,
+                description=model.description,
+                hard_block=model.hard_block,
+                is_active=model.is_active,
+            )
             for model in result.scalars()
         ]
 

@@ -22,6 +22,9 @@ class BlockingReason:
     id: UUID
     title: str
     hard_block: bool
+    code: str = ""
+    description: str | None = None
+    is_active: bool = True
 
 
 @dataclass(frozen=True, slots=True)
