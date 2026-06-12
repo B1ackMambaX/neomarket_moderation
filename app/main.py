@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.middleware.error_handler import domain_exception_handler
-from app.api.v1.routers import b2b_events, queue, tickets
+from app.api.v1.routers import b2b_events, blocking_reasons, queue, tickets
 from app.core.config import ALLOWED_ORIGINS, settings
 from app.core.database import engine
 from app.domain.exceptions import DomainException
@@ -36,6 +36,7 @@ app.add_exception_handler(DomainException, domain_exception_handler)
 app.include_router(tickets.router, prefix="/api/v1")
 app.include_router(queue.router, prefix="/api/v1")
 app.include_router(b2b_events.router, prefix="/api/v1")
+app.include_router(blocking_reasons.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System"])
