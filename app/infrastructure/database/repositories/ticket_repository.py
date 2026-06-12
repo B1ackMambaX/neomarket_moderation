@@ -165,6 +165,7 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
                     field_path=report.field_path,
                     message=report.message,
                     severity=report.severity,
+                    sku_id=report.sku_id,
                 )
                 for report in field_reports
             ]

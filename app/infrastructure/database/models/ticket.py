@@ -47,10 +47,15 @@ class ModerationFieldReportModel(Base, TimestampMixin):
     __tablename__ = "moderation_field_reports"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    ticket_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
+    ticket_id: Mapped[UUID] = mapped_column(
+        ForeignKey("moderation_tickets.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
     field_path: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(String(2000), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="ERROR")
+    sku_id: Mapped[UUID | None] = mapped_column(nullable=True)
 
 
 class BlockingReasonModel(Base, TimestampMixin):

@@ -18,14 +18,16 @@ class ApproveTicketRequest(BaseModel):
 
 class FieldReportRequest(BaseModel):
     field_path: str = Field(max_length=255)
-    message: str = Field(max_length=2000)
-    severity: str = "ERROR"
+    message: str = Field(max_length=1000)
+    severity: Literal["INFO", "WARNING", "ERROR"] = "ERROR"
+    sku_id: UUID | None = None
 
     def to_entity(self) -> FieldReport:
         return FieldReport(
             field_path=self.field_path,
             message=self.message,
             severity=self.severity,
+            sku_id=self.sku_id,
         )
 
 
