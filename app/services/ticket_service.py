@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from app.domain.entities.ticket import FieldReport, ModerationTicket, TicketKind, TicketStatus
@@ -18,9 +18,30 @@ class TicketService:
         self,
         ticket_repository: AbstractTicketRepository,
         b2b_client: AbstractB2BModerationClient,
+        in_review_timeout_minutes: int = 30,
     ) -> None:
         self._tickets = ticket_repository
         self._b2b_client = b2b_client
+        self._in_review_timeout = timedelta(minutes=in_review_timeout_minutes)
+
+    async def claim_next_ticket(
+        self,
+        *,
+        moderator_id: UUID,
+        queue_priority: int | None,
+        category_ids: list[UUID] | None,
+    ) -> ModerationTicket | None:
+        now = datetime.now(timezone.utc)
+        result = await self._tickets.claim_next(
+            moderator_id=moderator_id,
+            queue_priority=queue_priority,
+            category_ids=category_ids,
+            claimed_at=now,
+            claim_expires_at=now + self._in_review_timeout,
+        )
+        if result.moderator_already_has_ticket:
+            raise ConflictException("Moderator already has a ticket in review")
+        return result.ticket
 
     async def approve_ticket(
         self,

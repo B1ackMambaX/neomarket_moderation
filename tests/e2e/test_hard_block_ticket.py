@@ -73,6 +73,9 @@ class FakeTicketRepository(AbstractTicketRepository):
             return None
         return self.ticket
 
+    async def claim_next(self, **kwargs):
+        raise NotImplementedError
+
     async def get_blocking_reasons(
         self, reason_ids: list[UUID]
     ) -> list[BlockingReason]:

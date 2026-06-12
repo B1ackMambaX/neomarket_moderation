@@ -100,6 +100,7 @@ docker compose exec api alembic upgrade head
 | `SECRET_KEY` | JWT secret | `changeme` |
 | `DEBUG` | Режим отладки | `false` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Время жизни JWT | `30` |
+| `IN_REVIEW_TIMEOUT_MINUTES` | TTL закрепления тикета за модератором | `30` |
 
 > CORS origins (`ALLOWED_ORIGINS`) задаются в коде — `app/core/config.py`. По умолчанию разрешены `localhost:3000` и `localhost:5173`.
 

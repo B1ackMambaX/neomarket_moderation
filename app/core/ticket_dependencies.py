@@ -1,6 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.domain.repositories.ticket_repository import AbstractTicketRepository
 from app.infrastructure.database.repositories.ticket_repository import (
@@ -27,4 +28,8 @@ async def get_ticket_service(
     ticket_repository: AbstractTicketRepository = Depends(get_ticket_repository),
     b2b_client: AbstractB2BModerationClient = Depends(get_b2b_moderation_client),
 ) -> TicketService:
-    return TicketService(ticket_repository, b2b_client)
+    return TicketService(
+        ticket_repository,
+        b2b_client,
+        in_review_timeout_minutes=settings.IN_REVIEW_TIMEOUT_MINUTES,
+    )

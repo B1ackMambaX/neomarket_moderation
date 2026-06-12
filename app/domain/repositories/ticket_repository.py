@@ -1,8 +1,15 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 from app.domain.entities.ticket import BlockingReason, FieldReport, ModerationTicket
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimNextResult:
+    ticket: ModerationTicket | None = None
+    moderator_already_has_ticket: bool = False
 
 
 class AbstractTicketRepository(ABC):
@@ -16,6 +23,18 @@ class AbstractTicketRepository(ABC):
 
     @abstractmethod
     async def get_by_product_id(self, product_id: UUID) -> ModerationTicket | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def claim_next(
+        self,
+        *,
+        moderator_id: UUID,
+        queue_priority: int | None,
+        category_ids: list[UUID] | None,
+        claimed_at: datetime,
+        claim_expires_at: datetime,
+    ) -> ClaimNextResult:
         raise NotImplementedError
 
     @abstractmethod
