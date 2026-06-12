@@ -35,6 +35,11 @@ class BlockTicketRequest(BaseModel):
     field_reports: list[FieldReportRequest] = Field(default_factory=list)
 
 
+class ClaimQueueRequest(BaseModel):
+    queue_priority: int | None = Field(default=None, ge=1, le=4)
+    category_ids: list[UUID] | None = None
+
+
 class IncomingB2BEvent(BaseModel):
     event_type: Literal["PRODUCT_CREATED", "PRODUCT_EDITED", "PRODUCT_DELETED"]
     idempotency_key: UUID

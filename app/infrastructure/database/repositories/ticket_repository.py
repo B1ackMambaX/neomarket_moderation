@@ -1,12 +1,20 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.entities.ticket import BlockingReason, FieldReport, ModerationTicket
-from app.domain.repositories.ticket_repository import AbstractTicketRepository
+from app.domain.entities.ticket import (
+    BlockingReason,
+    FieldReport,
+    ModerationTicket,
+    TicketStatus,
+)
+from app.domain.repositories.ticket_repository import (
+    AbstractTicketRepository,
+    ClaimNextResult,
+)
 from app.infrastructure.database.models.ticket import (
     BlockingReasonModel,
     ModerationFieldReportModel,
@@ -42,6 +50,81 @@ class SQLAlchemyTicketRepository(AbstractTicketRepository):
         if model is None:
             return None
         return self._to_entity(model)
+
+    async def claim_next(
+        self,
+        *,
+        moderator_id: UUID,
+        queue_priority: int | None,
+        category_ids: list[UUID] | None,
+        claimed_at: datetime,
+        claim_expires_at: datetime,
+    ) -> ClaimNextResult:
+        # Covers concurrent initial claims where no moderator-owned row exists yet.
+        advisory_lock_key = moderator_id.int & 0x7FFF_FFFF_FFFF_FFFF
+        await self._session.execute(
+            select(func.pg_advisory_xact_lock(advisory_lock_key))
+        )
+
+        await self._session.execute(
+            update(ModerationTicketModel)
+            .where(
+                ModerationTicketModel.status == TicketStatus.IN_REVIEW,
+                ModerationTicketModel.claim_expires_at <= claimed_at,
+            )
+            .values(
+                status=TicketStatus.PENDING,
+                assigned_moderator_id=None,
+                claimed_at=None,
+                claim_expires_at=None,
+                updated_at=claimed_at,
+            )
+        )
+
+        active_claim = await self._session.execute(
+            select(ModerationTicketModel.id)
+            .where(
+                ModerationTicketModel.status == TicketStatus.IN_REVIEW,
+                ModerationTicketModel.assigned_moderator_id == moderator_id,
+            )
+            .limit(1)
+        )
+        if active_claim.scalar_one_or_none() is not None:
+            await self._session.commit()
+            return ClaimNextResult(moderator_already_has_ticket=True)
+
+        statement = select(ModerationTicketModel).where(
+            ModerationTicketModel.status == TicketStatus.PENDING
+        )
+        if queue_priority is not None:
+            statement = statement.where(
+                ModerationTicketModel.queue_priority == queue_priority
+            )
+        if category_ids:
+            statement = statement.where(
+                ModerationTicketModel.category_id.in_(category_ids)
+            )
+
+        result = await self._session.execute(
+            statement.order_by(
+                ModerationTicketModel.queue_priority.asc(),
+                ModerationTicketModel.created_at.asc(),
+            )
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            await self._session.commit()
+            return ClaimNextResult()
+
+        model.status = TicketStatus.IN_REVIEW
+        model.assigned_moderator_id = moderator_id
+        model.claimed_at = claimed_at
+        model.claim_expires_at = claim_expires_at
+        model.updated_at = claimed_at
+        await self._session.commit()
+        return ClaimNextResult(ticket=self._to_entity(model))
 
     async def get_blocking_reasons(
         self, reason_ids: list[UUID]
