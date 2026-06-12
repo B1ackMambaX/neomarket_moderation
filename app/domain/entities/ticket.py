@@ -32,6 +32,7 @@ class FieldReport:
     field_path: str
     message: str
     severity: str = "ERROR"
+    sku_id: UUID | None = None
 
 
 @dataclass(slots=True)

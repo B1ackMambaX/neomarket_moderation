@@ -290,6 +290,235 @@ async def test_hard_block_event_carries_hard_block_true(hard_block_client):
     ]
 
 
+async def test_soft_block_transitions_to_blocked_with_field_reports(
+    hard_block_client,
+):
+    client, set_repo, _b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Bad description", hard_block=False)
+    ticket = make_ticket(moderator_id=moderator_id)
+    repo = set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={
+            "blocking_reason_ids": [str(reason.id)],
+            "comment": "Fix the product card",
+            "field_reports": [
+                {
+                    "field_path": "description",
+                    "message": "Description belongs to another product",
+                    "severity": "ERROR",
+                },
+                {
+                    "field_path": "images[0].url",
+                    "message": "Image is blurred",
+                    "severity": "WARNING",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "BLOCKED"
+    assert repo.ticket.status == TicketStatus.BLOCKED
+    assert repo.ticket.blocking_reason_id == reason.id
+    assert repo.ticket.decision_comment == "Fix the product card"
+    assert repo.field_reports_cleared is True
+    assert repo.field_reports == [
+        FieldReport(
+            field_path="description",
+            message="Description belongs to another product",
+            severity="ERROR",
+        ),
+        FieldReport(
+            field_path="images[0].url",
+            message="Image is blurred",
+            severity="WARNING",
+        ),
+    ]
+
+
+async def test_soft_block_emits_event_to_b2b(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Bad image", hard_block=False)
+    ticket = make_ticket(moderator_id=moderator_id)
+    set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={
+            "blocking_reason_ids": [str(reason.id)],
+            "comment": "Replace image",
+            "field_reports": [
+                {
+                    "field_path": "images[0].url",
+                    "message": "Image is blurred",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert b2b_client.events == [
+        {
+            "idempotency_key": ticket.id,
+            "product_id": ticket.product_id,
+            "event_type": "BLOCKED",
+            "moderator_id": moderator_id,
+            "moderator_comment": "Replace image",
+            "blocking_reason_id": reason.id,
+            "hard_block": False,
+            "field_reports": [
+                {
+                    "field_name": "images[0].url",
+                    "sku_id": None,
+                    "comment": "Image is blurred",
+                }
+            ],
+            "occurred_at": ticket.decision_at,
+        }
+    ]
+
+
+async def test_soft_block_unknown_reason_returns_400(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    ticket = make_ticket(moderator_id=moderator_id)
+    set_repo(ticket, [])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={"blocking_reason_ids": [str(uuid4())]},
+    )
+
+    assert response.status_code == 400
+    assert ticket.status == TicketStatus.IN_REVIEW
+    assert b2b_client.events == []
+
+
+async def test_soft_block_others_card_returns_403(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    reason = BlockingReason(id=uuid4(), title="Bad category", hard_block=False)
+    ticket = make_ticket(moderator_id=uuid4())
+    set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(uuid4()),
+        json={"blocking_reason_ids": [str(reason.id)]},
+    )
+
+    assert response.status_code == 403
+    assert ticket.status == TicketStatus.IN_REVIEW
+    assert b2b_client.events == []
+
+
+async def test_soft_block_hard_only_reason_routes_to_hard_block(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Counterfeit", hard_block=True)
+    ticket = make_ticket(moderator_id=moderator_id)
+    set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={"blocking_reason_ids": [str(reason.id)]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "HARD_BLOCKED"
+    assert b2b_client.events[0]["hard_block"] is True
+
+
+async def test_soft_block_invalid_severity_returns_400(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Bad image", hard_block=False)
+    ticket = make_ticket(moderator_id=moderator_id)
+    set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={
+            "blocking_reason_ids": [str(reason.id)],
+            "field_reports": [
+                {
+                    "field_path": "images[0].url",
+                    "message": "Image is blurred",
+                    "severity": "CRITICAL",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert ticket.status == TicketStatus.IN_REVIEW
+    assert b2b_client.events == []
+
+
+async def test_soft_block_missing_field_path_returns_400(
+    hard_block_client,
+):
+    # field_reports[] requires field_path + message (OpenAPI FieldReport);
+    # sending only flow-format keys (field_name, comment) triggers validation error.
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Bad image", hard_block=False)
+    ticket = make_ticket(moderator_id=moderator_id)
+    set_repo(ticket, [reason])
+
+    response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={
+            "blocking_reason_ids": [str(reason.id)],
+            "field_reports": [
+                {
+                    "field_name": "not_allowed",
+                    "comment": "Flow-shaped report",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert ticket.status == TicketStatus.IN_REVIEW
+    assert b2b_client.events == []
+
+
+async def test_soft_block_cannot_be_modified_by_moderator(hard_block_client):
+    client, set_repo, b2b_client = hard_block_client
+    moderator_id = uuid4()
+    reason = BlockingReason(id=uuid4(), title="Bad image", hard_block=False)
+    ticket = make_ticket(status=TicketStatus.BLOCKED, moderator_id=moderator_id)
+    set_repo(ticket, [reason])
+
+    approve_response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/approve",
+        headers=auth(moderator_id),
+        json={},
+    )
+    block_response = await client.post(
+        f"/api/v1/tickets/{ticket.id}/block",
+        headers=auth(moderator_id),
+        json={"blocking_reason_ids": [str(reason.id)]},
+    )
+
+    assert approve_response.status_code == 409
+    assert block_response.status_code == 409
+    assert ticket.status == TicketStatus.BLOCKED
+    assert b2b_client.events == []
+
+
 async def test_any_modify_on_hard_blocked_returns_403(hard_block_client):
     client, set_repo, b2b_client = hard_block_client
     moderator_id = uuid4()

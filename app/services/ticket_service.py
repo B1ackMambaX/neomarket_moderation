@@ -146,11 +146,15 @@ class TicketService:
         event_reports = [
             {
                 "field_name": report.field_path,
-                "sku_id": None,
+                "sku_id": report.sku_id,
                 "comment": report.message,
             }
             for report in field_reports
         ]
+
+        await self._tickets.clear_field_reports(ticket.id)
+        await self._tickets.save_field_reports(ticket.id, field_reports)
+        await self._tickets.save(ticket)
 
         try:
             await self._b2b_client.send_blocked_event(
@@ -169,13 +173,12 @@ class TicketService:
             ticket.decision_comment = previous_decision_comment
             ticket.blocking_reason_id = previous_blocking_reason_id
             ticket.updated_at = previous_updated_at
+            await self._tickets.clear_field_reports(ticket.id)
+            await self._tickets.save(ticket)
             raise UpstreamServiceException(
                 f"B2B service unavailable: {exc}"
             ) from exc
 
-        await self._tickets.clear_field_reports(ticket.id)
-        await self._tickets.save_field_reports(ticket.id, field_reports)
-        await self._tickets.save(ticket)
         return ticket
 
     async def apply_b2b_event(
