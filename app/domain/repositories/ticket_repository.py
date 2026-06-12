@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from uuid import UUID
 
 from app.domain.entities.ticket import BlockingReason, FieldReport, ModerationTicket
@@ -39,4 +40,39 @@ class AbstractTicketRepository(ABC):
 
     @abstractmethod
     async def delete_by_product_id(self, product_id: UUID) -> None:
+        raise NotImplementedError
+
+    async def is_event_processed(self, idempotency_key: UUID) -> bool:
+        raise NotImplementedError
+
+    async def mark_event_processed(
+        self,
+        idempotency_key: UUID,
+        product_id: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def create_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def save_from_event(
+        self,
+        ticket: ModerationTicket,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def delete_from_event(
+        self,
+        product_id: UUID,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+    ) -> bool:
         raise NotImplementedError

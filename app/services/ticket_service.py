@@ -161,49 +161,108 @@ class TicketService:
         self,
         *,
         event_type: str,
-        payload: dict,
+        idempotency_key: UUID,
+        occurred_at: datetime,
+        product_id: UUID | str,
+        seller_id: UUID | str | None,
+        payload: dict | None = None,
     ) -> None:
-        product_id = UUID(payload["product_id"])
-
-        if event_type == "PRODUCT_CREATED":
-            now = datetime.now(timezone.utc)
-            ticket = ModerationTicket(
-                id=uuid4(),
-                product_id=product_id,
-                seller_id=UUID(payload["seller_id"]),
-                category_id=UUID(payload["category_id"]) if payload.get("category_id") else None,
-                kind=TicketKind.CREATE,
-                status=TicketStatus.PENDING,
-                queue_priority=payload.get("queue_priority", 3),
-                json_after=payload["json_after"],
-                created_at=now,
-                updated_at=now,
-            )
-            await self._tickets.create(ticket)
+        product_id = UUID(str(product_id))
+        if await self._tickets.is_event_processed(idempotency_key):
             return
 
         ticket = await self._tickets.get_by_product_id(product_id)
 
-        if event_type == "PRODUCT_DELETED":
-            await self._tickets.delete_by_product_id(product_id)
+        if event_type == "CREATED":
+            if ticket is not None and ticket.is_terminal():
+                await self._tickets.mark_event_processed(
+                    idempotency_key, product_id, occurred_at
+                )
+                return
+            if ticket is not None:
+                raise ValidationException("Product moderation ticket already exists")
+            if seller_id is None:
+                raise ValidationException("seller_id is required for CREATED")
+
+            snapshot = await self._product_snapshot(product_id, payload)
+            now = datetime.now(timezone.utc)
+            ticket = ModerationTicket(
+                id=uuid4(),
+                product_id=product_id,
+                seller_id=UUID(str(seller_id)),
+                category_id=self._optional_uuid(snapshot.get("category_id")),
+                kind=TicketKind.CREATE,
+                status=TicketStatus.PENDING,
+                queue_priority=payload.get("queue_priority", 1) if payload else 1,
+                json_after=snapshot,
+                created_at=now,
+                updated_at=now,
+            )
+            await self._tickets.create_from_event(ticket, idempotency_key, occurred_at)
             return
 
-        if (
-            event_type == "PRODUCT_EDITED"
-            and ticket is not None
-            and ticket.is_terminal()
-        ):
+        if event_type == "DELETED":
+            await self._tickets.delete_from_event(
+                product_id, idempotency_key, occurred_at
+            )
             return
 
-        if event_type == "PRODUCT_EDITED" and ticket is not None:
-            ticket.status = TicketStatus.PENDING
-            ticket.kind = TicketKind.EDIT
-            ticket.json_before = payload.get("json_before")
-            ticket.json_after = payload["json_after"]
-            ticket.category_id = payload.get("category_id")
-            ticket.queue_priority = payload.get("queue_priority", ticket.queue_priority)
-            ticket.assigned_moderator_id = None
-            ticket.claimed_at = None
-            ticket.claim_expires_at = None
-            ticket.updated_at = datetime.now(timezone.utc)
-            await self._tickets.save(ticket)
+        if event_type != "EDITED":
+            raise ValidationException(f"Unknown product event: {event_type}")
+        if ticket is None:
+            raise ValidationException("Product moderation ticket not found")
+        if ticket.is_terminal():
+            await self._tickets.mark_event_processed(
+                idempotency_key, product_id, occurred_at
+            )
+            return
+
+        old_status = ticket.status
+        snapshot = await self._product_snapshot(product_id, payload)
+        ticket.status = TicketStatus.PENDING
+        ticket.kind = TicketKind.EDIT
+        ticket.json_before = ticket.json_after
+        ticket.json_after = snapshot
+        ticket.category_id = self._optional_uuid(snapshot.get("category_id"))
+        ticket.queue_priority = self._edited_priority(
+            old_status, snapshot, ticket.queue_priority
+        )
+        ticket.assigned_moderator_id = None
+        ticket.claimed_at = None
+        ticket.claim_expires_at = None
+        ticket.decision_at = None
+        ticket.decision_comment = None
+        ticket.blocking_reason_id = None
+        ticket.updated_at = datetime.now(timezone.utc)
+        await self._tickets.save_from_event(ticket, idempotency_key, occurred_at)
+
+    async def _product_snapshot(self, product_id: UUID, payload: dict | None) -> dict:
+        if payload is not None and "json_after" in payload:
+            snapshot = dict(payload["json_after"])
+            if "category_id" not in snapshot and payload.get("category_id"):
+                snapshot["category_id"] = payload["category_id"]
+            return snapshot
+        return await self._b2b_client.get_product(product_id)
+
+    @staticmethod
+    def _optional_uuid(value: object) -> UUID | None:
+        return UUID(str(value)) if value else None
+
+    @staticmethod
+    def _edited_priority(
+        old_status: TicketStatus,
+        snapshot: dict,
+        current_priority: int,
+    ) -> int:
+        if old_status == TicketStatus.BLOCKED:
+            return 2
+        if old_status == TicketStatus.APPROVED:
+            quantity = snapshot.get("total_active_quantity")
+            if quantity is None:
+                quantity = sum(
+                    sku.get("active_quantity", 0)
+                    for sku in snapshot.get("skus", [])
+                    if isinstance(sku, dict)
+                )
+            return 3 if quantity > 0 else 4
+        return current_priority

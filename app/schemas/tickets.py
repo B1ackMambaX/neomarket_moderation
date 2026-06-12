@@ -42,6 +42,14 @@ class IncomingB2BEvent(BaseModel):
     payload: dict
 
 
+class ProductEventRequest(BaseModel):
+    idempotency_key: UUID
+    product_id: UUID
+    seller_id: UUID
+    event: Literal["CREATED", "EDITED", "DELETED"]
+    date: datetime
+
+
 class TicketResponse(BaseModel):
     id: UUID
     product_id: UUID

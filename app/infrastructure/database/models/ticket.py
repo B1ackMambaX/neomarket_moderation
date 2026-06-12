@@ -29,6 +29,17 @@ class ModerationTicketModel(Base, TimestampMixin):
     json_after: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
+class ProcessedProductEventModel(Base):
+    __tablename__ = "processed_product_events"
+
+    idempotency_key: Mapped[UUID] = mapped_column(primary_key=True)
+    product_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class ModerationFieldReportModel(Base, TimestampMixin):
     __tablename__ = "moderation_field_reports"
 
